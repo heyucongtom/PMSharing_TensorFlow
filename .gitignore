@@ -1,0 +1,7 @@
+# ignore data
+*.meta
+
+checkpoint*
+
+*.gz
+*.tar.gz
