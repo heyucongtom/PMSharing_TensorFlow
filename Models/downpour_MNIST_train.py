@@ -27,6 +27,7 @@ class DownpourSGDTrainer(object):
 
     def init_flags(self):
         self.flags = tf.app.flags
+        self.flags.DEFINE_string("train_log", "./tmp/mnist_train_logs", """dir for training log""")
         self.flags.DEFINE_string("train_dir", "./tmp/mnist_train", """Directory for training data""")
 
         # Flags for defining the tf.train.ClusterSpec
@@ -93,7 +94,7 @@ class DownpourSGDTrainer(object):
         print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
               (num_examples, true_count, precision))
 
-    def setup_server(self):
+    def downpour_training_distributed_op(self):
         """
         Set up workers with corresponding constants
         """
@@ -111,7 +112,9 @@ class DownpourSGDTrainer(object):
 
         if FLAGS.job_name == "ps":
             # Do something for parameter sharing scheme.
-            pass
+            # Currently updating all part.
+            server.join()
+
         elif FLAGS.job_name == "worker":
             # Assign operations to local worker by default:
             with tf.device(tf.train.replica_device_setter(
@@ -120,93 +123,133 @@ class DownpourSGDTrainer(object):
             )):
                 # Bulid model:
                 # Do something for parameter sharing scheme.
-                pass
+                # Currently updating all parameters.
+                images_placeholder, labels_placeholder = self.placeholder_inputs(FLAGS.batch_size)
+
+                logits = mnist.inference(images_placeholder, FLAGS.hidden1, FLAGS.hidden2)
+
+                loss = mnist.loss(logits, labels_placeholder)
+
+                # Create a varaiable to track the global step
+                global_step = tf.Variable(0, name='global_step', trainable='False')
+
+                # Add a scalar summary for the snapshot loss.
+                tf.summary.scalar('loss', loss)
+
+                # Create the gradient descent optimizer with the given learning rate.
+                optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
+
+                # Use the optimizer to apply the gradients that minimize the loss.
+                train_op = optimizer.minimize(loss, global_step=global_step)
+
+                saver = tf.train.Saver()
+                summary_op = tf.merge_all_summaries()
+                init_op = tf.initialize_all_variables()
+
+                # Create a "supervisor", which oversees the training process.
+                sv = tf.train.Supervisor(is_chief=(FLAGS.task_index == 0),
+                                         logdir=FLAGS.train_log,
+                                         init_op=init_op,
+                                         summary_op=summary_op,
+                                         saver=saver,
+                                         global_step=global_step,
+                                         save_model_secs=600)
+                # The supervisor takes care of session initialization, restoring from
+                # a checkpoint, and closing when done or an error occurs.
+                
+                with sv.managed_session(server.target) as sess:
+                    # Loop until the supervisor shuts down or 1000000 steps have completed.
+                    step = 0
+                    while not sv.should_stop() and step < 1000:
+                        # Run a training step asynchronously.
+                        _, step = sess.run([train_op, global_step])
+                    sv.stop()
 
     def downpour_training_local_op(self):
         """
         Validation baseline function: run locally.
         """
-        FLAGS = self.flags.FLAGS
-        images_placeholder, labels_placeholder = self.placeholder_inputs(FLAGS.batch_size)
+        # Tell TensorFlow that the model will be built into the default Graph.
+        with tf.Graph().as_default():
+            FLAGS = self.flags.FLAGS
+            images_placeholder, labels_placeholder = self.placeholder_inputs(FLAGS.batch_size)
 
-        # Do inference:
-        logits = mnist.inference(images_placeholder, FLAGS.hidden1, FLAGS.hidden2)
+            # Do inference:
+            logits = mnist.inference(images_placeholder, FLAGS.hidden1, FLAGS.hidden2)
 
-        # Calculate loss after generating logits:
-        loss = mnist.loss(logits, labels_placeholder)
+            # Calculate loss after generating logits:
+            loss = mnist.loss(logits, labels_placeholder)
 
-        # Add loss to training:
-        train_op = mnist.training(loss, FLAGS.learning_rate)
+            # Add loss to training:
+            train_op = mnist.training(loss, FLAGS.learning_rate)
 
-        # Add summary
-        summary = tf.merge_all_summaries()
+            # Add summary
+            summary = tf.merge_all_summaries()
 
+            # Add the Op to compare the logits to the labels during evaluation.
+            eval_correct = mnist.evaluation(logits, labels_placeholder)
 
+            # Initialize Variable
+            init = tf.initialize_all_variables()
 
-        # Add the Op to compare the logits to the labels during evaluation.
-        eval_correct = mnist.evaluation(logits, labels_placeholder)
+            sess = tf.Session()
 
-        # Initialize Variable
-        init = tf.initialize_all_variables()
+            # Instantiate a SummaryWriter to output summaries and the Graph.
+            summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
 
-        sess = tf.Session()
-
-        # Instantiate a SummaryWriter to output summaries and the Graph.
-        summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
-
-        sess.run(init)
+            sess.run(init)
 
 
-        for step in range(FLAGS.max_steps):
+            for step in range(FLAGS.max_steps+1):
 
-            """
-            We want to inspect loss value on each step as a local benchmark
-            for fully connected network.
-            """
+                """
+                We want to inspect loss value on each step as a local benchmark
+                for fully connected network.
+                """
 
-            start_time = time.time()
-            feed_dict = self.fill_feed_dict(self.data_set.train, images_placeholder, labels_placeholder)
+                start_time = time.time()
+                feed_dict = self.fill_feed_dict(self.data_set.train, images_placeholder, labels_placeholder)
 
-            # Run one step of the model.  The return values are the activations
-            # from the `train_op` (which is discarded) and the `loss` Op.  To
-            # inspect the values of your Ops or variables, you may include them
-            # in the list passed to sess.run() and the value tensors will be
-            # returned in the tuple from the call.
-            _, loss_value = sess.run([train_op, loss],
-                                     feed_dict=feed_dict)
+                # Run one step of the model.  The return values are the activations
+                # from the `train_op` (which is discarded) and the `loss` Op.  To
+                # inspect the values of your Ops or variables, you may include them
+                # in the list passed to sess.run() and the value tensors will be
+                # returned in the tuple from the call.
+                _, loss_value = sess.run([train_op, loss],
+                                         feed_dict=feed_dict)
 
-            duration = time.time() - start_time
+                duration = time.time() - start_time
 
-            # Write the summaries and print an overview fairly often.
-            if step % 100 == 0:
-                # Print status to stdout.
-                print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value, duration))
-                summary_str = sess.run(summary, feed_dict = feed_dict)
-                summary_writer.add_summary(summary_str, step)
-                summary_writer.flush()
+                # Write the summaries and print an overview fairly often.
+                if step % 100 == 0:
+                    # Print status to stdout.
+                    print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value, duration))
+                    summary_str = sess.run(summary, feed_dict = feed_dict)
+                    summary_writer.add_summary(summary_str, step)
+                    summary_writer.flush()
 
-            # Save a checkpoint and evaluate the model periodically.
-            if step % 1000 == 0:
-                print('Training Data Eval:')
-                self.do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        self.data_set.train)
-                # Evaluate against the validation set.
-                print('Validation Data Eval:')
-                self.do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        self.data_set.validation)
-                # Evaluate against the test set.
-                print('Test Data Eval:')
-                self.do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        self.data_set.test)
+                # Save a checkpoint and evaluate the model periodically.
+                if step % 1000 == 0:
+                    print('Training Data Eval:')
+                    self.do_eval(sess,
+                            eval_correct,
+                            images_placeholder,
+                            labels_placeholder,
+                            self.data_set.train)
+                    # Evaluate against the validation set.
+                    print('Validation Data Eval:')
+                    self.do_eval(sess,
+                            eval_correct,
+                            images_placeholder,
+                            labels_placeholder,
+                            self.data_set.validation)
+                    # Evaluate against the test set.
+                    print('Test Data Eval:')
+                    self.do_eval(sess,
+                            eval_correct,
+                            images_placeholder,
+                            labels_placeholder,
+                            self.data_set.test)
 
 trainer = DownpourSGDTrainer()
-trainer.downpour_training_local_op()
+trainer.downpour_training_distributed_op()
