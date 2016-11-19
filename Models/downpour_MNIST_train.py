@@ -6,7 +6,7 @@ import tensorflow as tf
 import time
 
 from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets('MNIST_data', one_hot = True)
+from tensorflow.examples.tutorials.mnist import mnist
 
 class DownpourSGDTrainer(object):
 
@@ -22,12 +22,12 @@ class DownpourSGDTrainer(object):
 
     def __init__(self, ):
         self.init_flags()
-        self.data_set = mnist
+        FLAGS = self.flags.FLAGS
+        self.data_set = input_data.read_data_sets(FLAGS.train_dir, FLAGS.fake_data)
 
     def init_flags(self):
         self.flags = tf.app.flags
         self.flags.DEFINE_string("train_dir", "./tmp/mnist_train", """Directory for training data""")
-        self.flags.DEFINE_string
 
         # Flags for defining the tf.train.ClusterSpec
         self.flags.DEFINE_string("ps_hosts", "",
@@ -49,17 +49,18 @@ class DownpourSGDTrainer(object):
                              'for unit testing.')
 
     def placeholder_inputs(self, batch_size):
-        images_placeholder = tf.placeholder(tf.float32, shape=([batch_size, mnist.IMAGE_PIXELS]))
+        images_placeholder = tf.placeholder(tf.float32, shape=(batch_size, mnist.IMAGE_PIXELS))
         labels_placeholder = tf.placeholder(tf.int32, shape=([batch_size]))
         return images_placeholder, labels_placeholder
 
     def fill_feed_dict(self, data_set, image_pl, label_pl):
-        image_feed, label_feed = data_set.next_batch(flags.batch_size, flags.fake_data)
+        FLAGS = self.flags.FLAGS
+        image_feed, label_feed = data_set.next_batch(FLAGS.batch_size, FLAGS.fake_data)
 
         feed_dict = {image_pl: image_feed, label_pl: label_feed}
         return feed_dict
 
-    def do_eval(self, eval_correct, images_placeholder, labels_placeholder, data_set):
+    def do_eval(self,sess, eval_correct, images_placeholder, labels_placeholder, data_set):
 
         """Runs one evaluation against the full epoch of data.
         This function is to check stage for both asyn and syn loss.
@@ -75,13 +76,14 @@ class DownpourSGDTrainer(object):
 
         # And run one epoch of eval.
         true_count = 0
+        FLAGS = self.flags.FLAGS
 
         # Set numbers divisible by total.
         steps_per_epoch = data_set.num_examples // FLAGS.batch_size
         num_examples = steps_per_epoch * FLAGS.batch_size
 
-        for step in xrange(steps_per_epoch):
-          feed_dict = fill_feed_dict(data_set, images_placeholder, labels_placeholder)
+        for step in range(steps_per_epoch):
+          feed_dict = self.fill_feed_dict(data_set, images_placeholder, labels_placeholder)
           # Eval_correct is an op;
           # Running eval_correct will call mnist.evaluation for model, which will do the
           # reduce_sum for correct labels.
@@ -125,16 +127,21 @@ class DownpourSGDTrainer(object):
         Validation baseline function: run locally.
         """
         FLAGS = self.flags.FLAGS
-        images_placeholder, labels_placeholder = self.placeholder_inputs(self.flags.batch_size)
+        images_placeholder, labels_placeholder = self.placeholder_inputs(FLAGS.batch_size)
 
         # Do inference:
-        logits = mnist.inference(images_placeholder, self.flags.hidden1, self.flags.hidden2)
+        logits = mnist.inference(images_placeholder, FLAGS.hidden1, FLAGS.hidden2)
 
         # Calculate loss after generating logits:
         loss = mnist.loss(logits, labels_placeholder)
 
         # Add loss to training:
         train_op = mnist.training(loss, FLAGS.learning_rate)
+
+        # Add summary
+        summary = tf.merge_all_summaries()
+
+
 
         # Add the Op to compare the logits to the labels during evaluation.
         eval_correct = mnist.evaluation(logits, labels_placeholder)
@@ -143,10 +150,14 @@ class DownpourSGDTrainer(object):
         init = tf.initialize_all_variables()
 
         sess = tf.Session()
+
+        # Instantiate a SummaryWriter to output summaries and the Graph.
+        summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
+
         sess.run(init)
 
 
-        for step in xrange(FLAGS.max_steps):
+        for step in range(FLAGS.max_steps):
 
             """
             We want to inspect loss value on each step as a local benchmark
@@ -165,3 +176,37 @@ class DownpourSGDTrainer(object):
                                      feed_dict=feed_dict)
 
             duration = time.time() - start_time
+
+            # Write the summaries and print an overview fairly often.
+            if step % 100 == 0:
+                # Print status to stdout.
+                print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value, duration))
+                summary_str = sess.run(summary, feed_dict = feed_dict)
+                summary_writer.add_summary(summary_str, step)
+                summary_writer.flush()
+
+            # Save a checkpoint and evaluate the model periodically.
+            if step % 1000 == 0:
+                print('Training Data Eval:')
+                self.do_eval(sess,
+                        eval_correct,
+                        images_placeholder,
+                        labels_placeholder,
+                        self.data_set.train)
+                # Evaluate against the validation set.
+                print('Validation Data Eval:')
+                self.do_eval(sess,
+                        eval_correct,
+                        images_placeholder,
+                        labels_placeholder,
+                        self.data_set.validation)
+                # Evaluate against the test set.
+                print('Test Data Eval:')
+                self.do_eval(sess,
+                        eval_correct,
+                        images_placeholder,
+                        labels_placeholder,
+                        self.data_set.test)
+
+trainer = DownpourSGDTrainer()
+trainer.downpour_training_local_op()
