@@ -17,7 +17,9 @@ _y = tf.placeholder(tf.float32, [None, 10])
 # cross_entropy = tf.reduce_mean(-tf.reduce_sum(_y * tf.log(y), reduction_indices=[1]))
 cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(y, _y))
 
-train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
+opt = tf.train.GradientDescentOptimizer(0.5)
+gradient = opt.compute_gradients(cross_entropy)
+train_step = opt.apply_gradients(gradient)
 
 # Initialize the variables we create.
 # It defines the op but didn't run!
