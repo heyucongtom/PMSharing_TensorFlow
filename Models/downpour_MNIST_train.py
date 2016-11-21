@@ -156,10 +156,11 @@ class DownpourSGDTrainer(object):
                                          save_model_secs=600)
                 # The supervisor takes care of session initialization, restoring from
                 # a checkpoint, and closing when done or an error occurs.
-                
+
                 with sv.managed_session(server.target) as sess:
                     # Loop until the supervisor shuts down or 1000000 steps have completed.
                     step = 0
+                    print("Success")
                     while not sv.should_stop() and step < 1000:
                         # Run a training step asynchronously.
                         _, step = sess.run([train_op, global_step])
