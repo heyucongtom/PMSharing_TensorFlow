@@ -30,12 +30,6 @@ class DownpourSGDTrainer(object):
         self.flags.DEFINE_string("train_log", "./tmp/mnist_train_logs", """dir for training log""")
         self.flags.DEFINE_string("train_dir", "./tmp/mnist_train", """Directory for training data""")
 
-        # Flags for defining the tf.train.ClusterSpec
-        self.flags.DEFINE_string("ps_hosts", "",
-                                   "Comma-separated list of hostname:port pairs")
-        self.flags.DEFINE_string("worker_hosts", "",
-                                   "Comma-separated list of hostname:port pairs")
-
         # Flags for defining the tf.train.Server
         self.flags.DEFINE_string("job_name", "", "One of 'ps', 'worker'")
         self.flags.DEFINE_integer("task_index", 0, "Index of task within the job")
@@ -44,13 +38,13 @@ class DownpourSGDTrainer(object):
         self.flags.DEFINE_integer('max_steps', 2000, 'Number of steps to run trainer.')
         self.flags.DEFINE_integer('hidden1', 128, 'Number of units in hidden layer 1.')
         self.flags.DEFINE_integer('hidden2', 32, 'Number of units in hidden layer 2.')
-        self.flags.DEFINE_integer('batch_size', 100, 'Batch size.  '
+        self.flags.DEFINE_integer('batch_size', 200, 'Batch size.  '
                              'Must divide evenly into the dataset sizes.')
         self.flags.DEFINE_boolean('fake_data', False, 'If true, uses fake data '
                              'for unit testing.')
 
     def placeholder_inputs(self, batch_size):
-        images_placeholder = tf.placeholder(tf.float32, shape=(batch_size, mnist.IMAGE_PIXELS))
+        images_placeholder = tf.placeholder(tf.float32, shape=([batch_size, mnist.IMAGE_PIXELS]))
         labels_placeholder = tf.placeholder(tf.int32, shape=([batch_size]))
         return images_placeholder, labels_placeholder
 
@@ -101,13 +95,11 @@ class DownpourSGDTrainer(object):
         FLAGS = self.flags.FLAGS
 
         # Pass in by  --ps_hosts=ps0.example.com:2222, ps1.example.com:2222
-        ps_hosts = FLAGS.ps_hosts.split(",")
-        worker_hosts = FLAGS.worker_hosts.split(",")
+        # ps_hosts = FLAGS.ps_hosts.split(",")
+        # worker_hosts = FLAGS.worker_hosts.split(",")
 
         # Create cluster:
-        cluster = tf.train.ClusterSpec({"ps": ps_hosts, "worker": worker_hosts})
-
-        # Create and start a server: pass in by --job_name=worker --task_index=1
+        cluster = tf.train.ClusterSpec({"ps": ["localhost:2222"], "worker":["localhost:2222", "localhost:2222"]})
         server = tf.train.Server(cluster, job_name=FLAGS.job_name, task_index=FLAGS.task_index)
 
         if FLAGS.job_name == "ps":
@@ -117,10 +109,7 @@ class DownpourSGDTrainer(object):
 
         elif FLAGS.job_name == "worker":
             # Assign operations to local worker by default:
-            with tf.device(tf.train.replica_device_setter(
-                worker_device="/job:worker/task:%d" % FLAGS.task_index,
-                cluster=cluster
-            )):
+            with tf.device(tf.train.replica_device_setter(worker_device="/job:worker/replica:%d/task:%d/cpu:%d" % (0, FLAGS.task_index, 0))):
                 # Bulid model:
                 # Do something for parameter sharing scheme.
                 # Currently updating all parameters.
@@ -130,7 +119,7 @@ class DownpourSGDTrainer(object):
 
                 loss = mnist.loss(logits, labels_placeholder)
 
-                # Create a varaiable to track the global step
+                # Create a variable to track the global step
                 global_step = tf.Variable(0, name='global_step', trainable='False')
 
                 # Add a scalar summary for the snapshot loss.
@@ -146,25 +135,31 @@ class DownpourSGDTrainer(object):
                 summary_op = tf.merge_all_summaries()
                 init_op = tf.initialize_all_variables()
 
-                # Create a "supervisor", which oversees the training process.
-                sv = tf.train.Supervisor(is_chief=(FLAGS.task_index == 0),
-                                         logdir=FLAGS.train_log,
-                                         init_op=init_op,
-                                         summary_op=summary_op,
-                                         saver=saver,
-                                         global_step=global_step,
-                                         save_model_secs=600)
-                # The supervisor takes care of session initialization, restoring from
-                # a checkpoint, and closing when done or an error occurs.
+            # Create a "supervisor", which oversees the training process.
+            sv = tf.train.Supervisor(is_chief=(FLAGS.task_index == 0),
+                                     logdir=FLAGS.train_log,
+                                     init_op=init_op,
+                                     summary_op=summary_op,
+                                     saver=saver,
+                                     global_step=global_step,
+                                     save_model_secs=600)
+            # The supervisor takes care of session initialization, restoring from
+            # a checkpoint, and closing when done or an error occurs.
 
-                with sv.managed_session(server.target) as sess:
-                    # Loop until the supervisor shuts down or 1000000 steps have completed.
-                    step = 0
-                    print("Success")
-                    while not sv.should_stop() and step < 1000:
-                        # Run a training step asynchronously.
-                        _, step = sess.run([train_op, global_step])
-                    sv.stop()
+            with sv.managed_session(server.target, config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)) as sess:
+                # Loop until the supervisor shuts down or 1000 steps have completed.
+                step = 0
+                while not sv.should_stop() and step < 1000:
+                    # Run a training step asynchronously.
+                    feed_dict = self.fill_feed_dict(self.data_set.train, images_placeholder, labels_placeholder)
+
+                    # Run one step of the model.  The return values are the activations
+                    # from the `train_op` (which is discarded) and the `loss` Op.  To
+                    # inspect the values of your Ops or variables, you may include them
+                    # in the list passed to sess.run() and the value tensors will be
+                    # returned in the tuple from the call.
+                    _, step = sess.run([train_op, loss], feed_dict=feed_dict)
+                sv.stop()
 
     def downpour_training_local_op(self):
         """
@@ -254,3 +249,7 @@ class DownpourSGDTrainer(object):
 
 trainer = DownpourSGDTrainer()
 trainer.downpour_training_distributed_op()
+
+#python downpour_MNIST_train.py --job_name=ps  --task_index=0
+#python downpour_MNIST_train.py --job_name=worker  --task_index=0
+#python downpour_MNIST_train.py --job_name=worker  --task_index=1
