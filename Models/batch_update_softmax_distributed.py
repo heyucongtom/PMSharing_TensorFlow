@@ -19,6 +19,7 @@ if FLAGS.job_name == "worker":
     with tf.device(tf.train.replica_device_setter(worker_device="/job:worker/replica:%d/task:%d/cpu:%d" % (0, FLAGS.task_index, 0))):
         weights_1 = tf.Variable(tf.zeros([784, 10]))
         biases_1 = tf.Variable(tf.zeros([10]))
+
         X_input = tf.placeholder(tf.float32, [None, 784])
 
         global_step = tf.Variable(0)
