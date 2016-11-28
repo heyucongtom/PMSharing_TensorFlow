@@ -6,12 +6,6 @@ import numpy as np
 from ParameterServer import ParameterServer, MNISTSoftmaxModel
 from Client import MNISTClient
 
-def train_func(client):
-    client.train()
-
-def test_func(client):
-    print(client)
-
 if __name__ == '__main__':
     """MNIST Part"""
     init_weights = np.random.rand(784, 10)
@@ -30,11 +24,12 @@ if __name__ == '__main__':
     If not sharing, then shall output two similar training result if programed correctly.
     """
     Client1 = MNISTClient(server=ps, name='CL1')
-    Client2 = MNISTClient(server=ps, name='CL2')
+    # Client2 = MNISTClient(server=ps, name='CL2')
 
-    client_lst.append((Client1))
-    client_lst.append((Client2))
+    # [0, 1]
 
-    pool = mp.Pool(2)
+    # pool = mp.Pool(2)
+    #
+    # pool.map(test_func, client_lst)
 
-    pool.map(test_func, client_lst)
+    Client1.train()

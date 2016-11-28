@@ -9,7 +9,7 @@ class ParameterServer(object):
         self.model = model
         self.lock = mp.Lock()
         # Create a variable to track the global step
-        self.global_step = tf.Variable(0, name='global_step', trainable='False')
+        # self.global_step = tf.Variable(0, name='global_step', trainable='False')
 
     def getParams(self):
         """

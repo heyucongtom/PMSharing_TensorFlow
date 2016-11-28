@@ -20,7 +20,7 @@ def build_mnist_graph(graph, device, MNIST_server, name):
             bias = tf.get_variable('bias', initializer=params['bias_1'])
 
             # Build forward inference graph
-            global_step = MNIST_server.global_step
+            # global_step = MNIST_server.global_step
 
             logits = tf.nn.softmax(tf.matmul(X_input, weights) + bias)
             cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, y))
@@ -28,10 +28,12 @@ def build_mnist_graph(graph, device, MNIST_server, name):
             # Build gradient
             opt = tf.train.GradientDescentOptimizer(0.5, name=name)
             gradients = opt.compute_gradients(cross_entropy)
-            train_op = opt.apply_gradients(gradients, global_step=global_step)
+            train_op = opt.apply_gradients(gradients)
+
+            init = tf.initialize_all_variables()
 
             saver = tf.train.Saver()
-            return train_op, gradients, weights, bias, saver, X_input, y, logits
+            return train_op, gradients, weights, bias, saver, X_input, y, logits, init
 
 
 class MNISTClient(object):
@@ -46,11 +48,15 @@ class MNISTClient(object):
         self.data_set = input_data.read_data_sets('MNIST_data', one_hot=True)
         self.server = server
         self.graph = tf.Graph()
-        self.session = tf.Session()
         self.device = device
 
         # Build the graph.
-        train_op, gradients, weights, bias, saver, X_input, y, logits = build_mnist_graph(self.graph, self.device, self.server, name)
+        train_op, gradients, weights, bias, saver, X_input, y, logits, init = build_mnist_graph(self.graph, self.device, self.server, name)
+
+        # Assert
+        print(train_op.graph)
+        print(weights.graph)
+        print(self.graph)
         self.gradients = gradients
         self.train_op = train_op
         self.weights = weights
@@ -59,27 +65,30 @@ class MNISTClient(object):
         self.X_input = X_input
         self.y_label = y
         self.logit = logits
+        self.init_op = init
 
-    def train(self, steps=10):
+    def train(self, steps=10, batch_size=100):
         """
         Actually do the training.
         1. In the training graph, the client get params from the server.
         2. Run the train_op for k steps.
         3. At multiple of steps, we get the params and write to server.
         """
-        sess = self.session
-        init = tf.initialize_all_variables()
-        sess.run(init)
+        sess = tf.Session(graph=self.graph)
+        sess.run(self.init_op)
+        # print(self.weights.eval(session=sess))
         for i in range(1000000):
-            batch_xs, batch_ys = mnist.train.next_batch(batch_size)
+            batch_xs, batch_ys = self.data_set.train.next_batch(batch_size)
             sess.run(self.train_op)
 
             # Update the gradients on server.
             gradient_batch = {}
 
             # Currently we use the raw expansion. Maybe improving in the future.
-            gradient_batch['weight_1'] = self.gradient[0][1].eval(session=sess)
-            gradient_batch['bias_1'] = self.gradient[1][1].eval(session=sess)
+            print(self.gradients[0][1].graph)
+
+            gradient_batch['weight_1'] = self.gradients[0][1].eval(session=sess)
+            gradient_batch['bias_1'] = self.gradients[1][1].eval(session=sess)
 
             self.server.applyGradients(gradient_batch)
 
