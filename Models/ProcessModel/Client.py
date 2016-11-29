@@ -11,13 +11,15 @@ def build_mnist_graph(graph, device, MNIST_server, name):
             # We need to specify the model for parameter sharing.
             MNIST_model = MNIST_server.model
             params = MNIST_model.getParams()
+            print("Graph initializing...")
+            print(params['bias_1'])
 
-            X_input = tf.placeholder(tf.float64, [None, 784])
-            y = tf.placeholder(tf.float64, [None, 10])
+            X_input = tf.placeholder(tf.float32, [None, 784])
+            y = tf.placeholder(tf.float32, [None, 10])
 
             # Load weights from model.
-            weights = tf.get_variable('weights', initializer=params['weight_1'])
-            bias = tf.get_variable('bias', initializer=params['bias_1'])
+            weights = tf.get_variable('weights', initializer=params['weight_1'], dtype=tf.float32)
+            bias = tf.get_variable('bias', initializer=params['bias_1'], dtype=tf.float32)
 
             # Build forward inference graph
             # global_step = MNIST_server.global_step
@@ -28,6 +30,7 @@ def build_mnist_graph(graph, device, MNIST_server, name):
             # Build gradient
             opt = tf.train.GradientDescentOptimizer(0.5, name=name)
             gradients = opt.compute_gradients(cross_entropy)
+
             train_op = opt.apply_gradients(gradients)
 
             init = tf.initialize_all_variables()
@@ -54,9 +57,6 @@ class MNISTClient(object):
         train_op, gradients, weights, bias, saver, X_input, y, logits, init = build_mnist_graph(self.graph, self.device, self.server, name)
 
         # Assert
-        print(train_op.graph)
-        print(weights.graph)
-        print(self.graph)
         self.gradients = gradients
         self.train_op = train_op
         self.weights = weights
@@ -77,29 +77,38 @@ class MNISTClient(object):
         sess = tf.Session(graph=self.graph)
         sess.run(self.init_op)
         # print(self.weights.eval(session=sess))
-        for i in range(1000000):
+        for i in range(1001):
+
+            if i % 1000 == 0:
+
+                # print(self.bias.eval(session=sess))
+                correct_prediction = tf.equal(tf.argmax(self.logit, 1), tf.argmax(self.y_label, 1))
+                casted = tf.cast(correct_prediction, tf.float32)
+
+                print(sum(casted.eval(session=sess, feed_dict={self.X_input:self.data_set.test.images, self.y_label: self.data_set.test.labels})) / 10000.0)
+
             batch_xs, batch_ys = self.data_set.train.next_batch(batch_size)
-            sess.run(self.train_op)
+
+            feed_dict = {self.X_input: batch_xs, self.y_label: batch_ys}
+            sess.run(self.train_op, feed_dict=feed_dict)
+
 
             # Update the gradients on server.
             gradient_batch = {}
-
+            params = self.server.getParams()
             # Currently we use the raw expansion. Maybe improving in the future.
-            print(self.gradients[0][1].graph)
 
-            gradient_batch['weight_1'] = self.gradients[0][1].eval(session=sess)
-            gradient_batch['bias_1'] = self.gradients[1][1].eval(session=sess)
+            gradient_batch['weight_1'] = self.gradients[0][1].eval(session=sess) - params['weight_1']
+            gradient_batch['bias_1'] = self.gradients[1][1].eval(session=sess) - params['bias_1']
 
             self.server.applyGradients(gradient_batch)
+            #
+            # print("Successfully upload gradients: ")
+            # print(gradient_batch)
 
-            print("Successfully upload gradients: ")
-            print(gradient_batch)
-
-            if i % 1000 == 0:
-                correct_prediction = tf.equal(tf.argmax(self.logit, 1), tf.argmax(self.y_label, 1))
-                accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-                print(sess.run(accuracy, feed_dict={x:self.data_set.test.images, _y: self.data_set.test.labels}))
+            # accuracy = tf.reduce_mean(casted)
+                #
+                # print(sess.run(accuracy, feed_dict={x:self.data_set.test.images, _y: self.data_set.test.labels}))
 
     def test_assignment(self):
         """

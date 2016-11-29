@@ -8,8 +8,8 @@ from Client import MNISTClient
 
 if __name__ == '__main__':
     """MNIST Part"""
-    init_weights = np.random.rand(784, 10)
-    init_bias = np.zeros(10)
+    init_weights = np.zeros([784, 10]).astype(np.float32, copy=False)
+    init_bias = np.zeros(10).astype(np.float32, copy=False)
     # Build the model
     model = MNISTSoftmaxModel(init_weights, init_bias)
 
@@ -24,12 +24,7 @@ if __name__ == '__main__':
     If not sharing, then shall output two similar training result if programed correctly.
     """
     Client1 = MNISTClient(server=ps, name='CL1')
-    # Client2 = MNISTClient(server=ps, name='CL2')
-
-    # [0, 1]
-
-    # pool = mp.Pool(2)
-    #
-    # pool.map(test_func, client_lst)
-
     Client1.train()
+
+    Client2 = MNISTClient(server=ps, name='CL2')
+    Client2.train()
