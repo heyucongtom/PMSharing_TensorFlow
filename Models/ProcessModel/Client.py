@@ -21,6 +21,8 @@ def build_mnist_graph(graph, device, MNIST_server, name):
             weights = tf.get_variable('weights', initializer=params['weight_1'], dtype=tf.float32)
             bias = tf.get_variable('bias', initializer=params['bias_1'], dtype=tf.float32)
 
+
+
             # Build forward inference graph
             # global_step = MNIST_server.global_step
 
@@ -74,37 +76,42 @@ class MNISTClient(object):
         2. Run the train_op for k steps.
         3. At multiple of steps, we get the params and write to server.
         """
+        print(self.server)
         sess = tf.Session(graph=self.graph)
         sess.run(self.init_op)
         # print(self.weights.eval(session=sess))
-        for i in range(1001):
+        for i in range(601):
+            # Update the gradients on server.
+            gradient_batch = {}
+            params = self.server.getParams()
 
-            if i % 1000 == 0:
+            if i % 50 == 0:
+                print(params['bias_1'])
+                assign_op_1 = self.weights.assign(params['weight_1'])
+                assign_op_2 = self.bias.assign(params['bias_1'])
 
-                # print(self.bias.eval(session=sess))
-                correct_prediction = tf.equal(tf.argmax(self.logit, 1), tf.argmax(self.y_label, 1))
-                casted = tf.cast(correct_prediction, tf.float32)
-
-                print(sum(casted.eval(session=sess, feed_dict={self.X_input:self.data_set.test.images, self.y_label: self.data_set.test.labels})) / 10000.0)
+                sess.run(assign_op_1)
+                sess.run(assign_op_2)
 
             batch_xs, batch_ys = self.data_set.train.next_batch(batch_size)
 
             feed_dict = {self.X_input: batch_xs, self.y_label: batch_ys}
             sess.run(self.train_op, feed_dict=feed_dict)
 
-
-            # Update the gradients on server.
-            gradient_batch = {}
-            params = self.server.getParams()
             # Currently we use the raw expansion. Maybe improving in the future.
-
             gradient_batch['weight_1'] = self.gradients[0][1].eval(session=sess) - params['weight_1']
             gradient_batch['bias_1'] = self.gradients[1][1].eval(session=sess) - params['bias_1']
 
             self.server.applyGradients(gradient_batch)
             #
             # print("Successfully upload gradients: ")
-            # print(gradient_batch)
+        # print(gradient_batch)
+        # print(self.bias.eval(session=sess))
+        correct_prediction = tf.equal(tf.argmax(self.logit, 1), tf.argmax(self.y_label, 1))
+        casted = tf.cast(correct_prediction, tf.float32)
+
+        print(sum(casted.eval(session=sess, feed_dict={self.X_input:self.data_set.test.images, self.y_label: self.data_set.test.labels})) / 10000.0)
+
 
             # accuracy = tf.reduce_mean(casted)
                 #

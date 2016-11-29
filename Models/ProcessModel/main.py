@@ -24,7 +24,14 @@ if __name__ == '__main__':
     If not sharing, then shall output two similar training result if programed correctly.
     """
     Client1 = MNISTClient(server=ps, name='CL1')
-    Client1.train()
 
     Client2 = MNISTClient(server=ps, name='CL2')
-    Client2.train()
+    p1 = mp.Process(target=Client1.train)
+    p2 = mp.Process(target=Client2.train)
+
+    p1.start()
+    import time
+    time.sleep(5)
+    p2.start()
+    p1.join()
+    p2.join()
