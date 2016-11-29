@@ -7,9 +7,10 @@ from ParameterServer import ParameterServer, MNISTSoftmaxModel
 from Client import MNISTClient
 
 def func(client, ):
-
+    pass
 
 if __name__ == '__main__':
+
     """MNIST Part"""
     init_weights = np.zeros([784, 10]).astype(np.float32, copy=False)
     init_bias = np.zeros(10).astype(np.float32, copy=False)

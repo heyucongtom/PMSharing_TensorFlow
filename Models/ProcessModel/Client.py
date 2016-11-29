@@ -47,7 +47,7 @@ class MNISTClient(object):
         Currently go with eval everything.
     """
 
-    def __init__(self, server, name, device='/cpu:0'):
+    def __init__(self, server, name, step = 50, device='/cpu:0'):
 
         from tensorflow.examples.tutorials.mnist import input_data
         self.data_set = input_data.read_data_sets('MNIST_data', one_hot=True)
@@ -68,6 +68,7 @@ class MNISTClient(object):
         self.y_label = y
         self.logit = logits
         self.init_op = init
+        self.communication_step = step
 
     def train(self, steps=10, batch_size=100):
         """
@@ -76,7 +77,7 @@ class MNISTClient(object):
         2. Run the train_op for k steps.
         3. At multiple of steps, we get the params and write to server.
         """
-        print(self.server)
+
         sess = tf.Session(graph=self.graph)
         sess.run(self.init_op)
         # print(self.weights.eval(session=sess))
@@ -86,7 +87,7 @@ class MNISTClient(object):
             params = self.server.getParams()
 
             if i % self.communication_step == 0:
-                print(params['bias_1'])
+
                 assign_op_1 = self.weights.assign(params['weight_1'])
                 assign_op_2 = self.bias.assign(params['bias_1'])
 
@@ -110,7 +111,7 @@ class MNISTClient(object):
         correct_prediction = tf.equal(tf.argmax(self.logit, 1), tf.argmax(self.y_label, 1))
         casted = tf.cast(correct_prediction, tf.float32)
 
-        print(sum(casted.eval(session=sess, feed_dict={self.X_input:self.data_set.test.images, self.y_label: self.data_set.test.labels})) / 10000.0)
+        print("The accuracy is {0}".format(sum(casted.eval(session=sess, feed_dict={self.X_input:self.data_set.test.images, self.y_label: self.data_set.test.labels})) / 10000.0))
 
 
             # accuracy = tf.reduce_mean(casted)
