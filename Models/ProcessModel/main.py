@@ -45,9 +45,8 @@ if __name__ == '__main__':
     manager = Manager()
     server = manager.Server(model)
     pool = mp.Pool(mp.cpu_count())
-    for i in range(3):
+    for i in range(4):
         # TODO: pool.async_apply will encounter computation overflow
-        pool.apply(func=train, args=(server, i))
+        pool.apply_async(func=train, args=(server, i))
     pool.close()
     pool.join()
-

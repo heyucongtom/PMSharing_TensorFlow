@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import time
 
 def build_mnist_graph(graph, device, MNIST_server, name):
     """
@@ -47,7 +48,7 @@ class MNISTClient(object):
         Currently go with eval everything.
     """
 
-    def __init__(self, name, step = 50, device='/cpu:0'):
+    def __init__(self, name, step = 20, device='/cpu:0'):
         self.communication_step = step
         self.device = device
         self.name = name
@@ -60,7 +61,7 @@ class MNISTClient(object):
         3. At multiple of steps, we get the params and write to server.
         """
         """
-        Initialization code based on server parameter 
+        Initialization code based on server parameter
         """
         from tensorflow.examples.tutorials.mnist import input_data
         data_set = input_data.read_data_sets('MNIST_data', one_hot=True)
@@ -74,7 +75,8 @@ class MNISTClient(object):
         sess = tf.Session(graph=graph)
         sess.run(init)
         # print(self.weights.eval(session=sess))
-        for i in range(601):
+        start = time.time()
+        for i in range(1501):
             # Update the gradients on server.
             gradient_batch = {}
             params = server.getParams()
@@ -93,19 +95,25 @@ class MNISTClient(object):
             sess.run(train_op, feed_dict=feed_dict)
 
             # Currently we use the raw expansion. Maybe improving in the future.
-            gradient_batch['weight_1'] = gradients[0][1].eval(session=sess) - params['weight_1']
-            gradient_batch['bias_1'] = gradients[1][1].eval(session=sess) - params['bias_1']
+            gradient_batch['weight_1'] = (gradients[0][1].eval(session=sess) - params['weight_1']) / self.communication_step
+            gradient_batch['bias_1'] = (gradients[1][1].eval(session=sess) - params['bias_1']) / self.communication_step
 
             server.applyGradients(gradient_batch)
+
+            # if i % 1 == 0:
             #
-            # print("Successfully upload gradients: ")
-        # print(gradient_batch)
-        # print(self.bias.eval(session=sess))
+            #     print(self.name, i)
+            #     print("Gradients: ", gradient_batch['bias_1'])
+            #     print(bias.eval(session=sess))
+
+        # print("Here")
+        # print(bias.eval(session=sess))
+        # print("what")
         correct_prediction = tf.equal(tf.argmax(logits, 1), tf.argmax(y, 1))
         casted = tf.cast(correct_prediction, tf.float32)
 
         print("The accuracy is {0}".format(sum(casted.eval(session=sess, feed_dict={X_input:data_set.test.images, y: data_set.test.labels})) / 10000.0))
-
+        print(time.time() - start)
 
             # accuracy = tf.reduce_mean(casted)
                 #

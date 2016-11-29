@@ -114,7 +114,7 @@ class DownpourSGDTrainer(object):
                 # Do something for parameter sharing scheme.
                 # Currently updating all parameters.
                 images_placeholder, labels_placeholder = self.placeholder_inputs(FLAGS.batch_size)
-
+    
                 logits = mnist.inference(images_placeholder, FLAGS.hidden1, FLAGS.hidden2)
 
                 loss = mnist.loss(logits, labels_placeholder)
@@ -129,6 +129,7 @@ class DownpourSGDTrainer(object):
                 optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
                 # Use the optimizer to apply the gradients that minimize the loss.
+                # feed_dict somewhere.
                 train_op = optimizer.minimize(loss, global_step=global_step)
 
                 saver = tf.train.Saver()
