@@ -85,7 +85,7 @@ class MNISTClient(object):
             gradient_batch = {}
             params = self.server.getParams()
 
-            if i % 50 == 0:
+            if i % self.communication_step == 0:
                 print(params['bias_1'])
                 assign_op_1 = self.weights.assign(params['weight_1'])
                 assign_op_2 = self.bias.assign(params['bias_1'])
